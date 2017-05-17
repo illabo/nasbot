@@ -44,14 +44,14 @@ def conductor(chat_id, method, params):
               '"method":"%s",'\
               '"params":%s}'
             ) % (chat_id, method, params)
-  wsocket.send(request)
+  wsocket.send(request.encode('ascii', 'ignore'))
   with open("nasbot_ws.log", "a") as logfile:
     if len(request) > 200:
       r = request[:200]
     else: r = request
     logfile.write("REQ: " 
                   + time.strftime("%d/%m/%Y %H:%M:%S")
-                  + r)
+                  + r.encode('ascii', 'ignore'))
   os.system("echo \"$(tail -300 nasbot_ws.log)\"\
             > nasbot_ws.log")
 
@@ -121,8 +121,34 @@ def on_ws_message(wsocket, message):
                 text = text[:text.find("\n\n", 300)]\
                        + "...\n\netc, etc"
               send_message(chat_id, text.replace("_", " "))
+    elif "-fail" in response['id']:
+      try:
+        text = "*Download from link failed:*\n\n%s" % \
+                  response['result'][0]['uris'][0]['uri']
+        send_message(response['id'].replace("-fail", ""), text)            
+      except (IndexError, KeyError):
+        text = "*Download of files failed:*\n\n"
+        for file in response['result']:
+          text += (file['path'] + "\n\n")
+        chat_id = response['id'].replace("-fail", "")
+        for k in dl_dirs.keys():
+          text = text.replace(dl_dirs[k],
+                              "To *'"+ k + "'* directory: ")            
+        if len(text) >= 300:
+          text = text[:text.find("\n\n", 300)]\
+                 + "...\n\netc, etc"
+        send_message(chat_id, text.replace("_", " "))
     else:
       gid_chat[response['result']] = response['id']
+  elif 'id' in response and 'error' in response:
+    position = response['id'].find("-sp_magnet")
+    if position != -1:
+      chat_id = response['id'][:position]
+    else:
+      chat_id = response['id'].replace("-started", "").replace(
+                                       "-pending", "").replace(
+                                       "-done", "")
+    send_message(chat_id, response['error']['message'])
   elif response['method'] == "aria2.onDownloadComplete" or \
        response['method'] == "aria2.onBtDownloadComplete":
     gid = response['params'][0]['gid']
@@ -151,6 +177,17 @@ def on_ws_message(wsocket, message):
     elif "-started" in gid_chat[gid]:
       gid_chat[gid] = gid_chat[gid].replace("-started", "-done")
       conductor(gid_chat[gid], "aria2.getFiles", '["%s"]' % gid)
+  elif response['method'] == "aria2.onDownloadError":
+    gid = response['params'][0]['gid']
+    position = gid_chat[gid].find("-sp_magnet")
+    if position != -1:
+      gid_chat[gid] = gid_chat[gid][:position] + "-fail"
+    else:
+      gid_chat[gid] = gid_chat[gid].replace("-started", "-fail").replace(
+                                       "-pending", "-fail").replace(
+                                       "-done", "-fail")
+    conductor(gid_chat[gid], "aria2.getFiles", '["%s"]' % gid)
+    del gid_chat[gid]
   id_store = shelve.open("id_file", writeback=True)
   id_store['gid_chat'], id_store['pending_magnet'] = \
   gid_chat, pending_magnet
@@ -206,14 +243,18 @@ def get_updates(offset):
             conductor(chat_id + "-started", "aria2.addTorrent",
              '["%s", [], {"dir":"%s/%s"}]' % tuple(attr_list))
           elif attr_list[0][:8] == "magnet:?":
-            conductor(chat_id + "-sp_magnet:" + attr_list[1] + "/"
-                      + attr_list[2], "aria2.addUri",
-                      '[["%s"], {"bt-metadata-only":"true",'\
-                      '"bt-save-metadata":"true"}]' % attr_list[0])
             id_store = shelve.open("id_file", writeback=True)
-            pending_magnet[chat_id] = re.search(r"btih:(\w+)&?", 
+            try:
+              pending_magnet[chat_id] = re.search(r"btih:(\w+)&?", 
                                      attr_list[0]).group(1).lower() \
                                      + ".torrent"
+              conductor(chat_id + "-sp_magnet:" + attr_list[1] + "/"
+                        + attr_list[2], "aria2.addUri",
+                        '[["%s"], {"bt-metadata-only":"true",'\
+                        '"bt-save-metadata":"true"}]' % attr_list[0])
+            except AttributeError:
+              send_message(chat_id, "*It's not a magnet link:*\n\n%s"
+                           % attr_list[0])
             id_store['pending_magnet'] = pending_magnet
             id_store.close()
           else:
@@ -288,18 +329,20 @@ def parse_uri(updates):
       if uri:
         if uri.group(1):
           global pending_magnet
-          conductor(msg[0] + "-pending", "aria2.addUri",
-                    '[["%s"], {"bt-metadata-only":"true",'\
-                    '"bt-save-metadata":"true"}]' % uri.group(1))
+          id_store = shelve.open("id_file", writeback=True)
           try:
-            id_store = shelve.open("id_file", writeback=True)
             pending_magnet[msg[0]] = re.search(r"btih:(\w+)&?", 
                                      uri.group(1)).group(1).lower() \
                                      + ".torrent"
-            id_store['pending_magnet'] = pending_magnet
-            id_store.close()
+            conductor(msg[0] + "-pending", "aria2.addUri",
+                      '[["%s"], {"bt-metadata-only":"true",'\
+                      '"bt-save-metadata":"true"}]' % uri.group(1))
           except AttributeError:
-            send_message(msg[0], "It's not a magnet link.")
+            send_message(msg[0], "*It's not a magnet link:*\n\n%s."
+                        % uri.group(1))
+          id_store['pending_magnet'] = pending_magnet
+          id_store.close()
+
         elif uri.group(2):
           download_torrent(msg[0] + "-started",
                            uri.group(2), uri=True)
