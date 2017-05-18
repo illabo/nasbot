@@ -44,14 +44,19 @@ def conductor(chat_id, method, params):
               '"method":"%s",'\
               '"params":%s}'
             ) % (chat_id, method, params)
-  wsocket.send(request.encode('ascii', 'ignore'))
+  wsocket.send(request)
   with open("nasbot_ws.log", "a") as logfile:
     if len(request) > 200:
       r = request[:200]
     else: r = request
-    logfile.write("REQ: " 
-                  + time.strftime("%d/%m/%Y %H:%M:%S")
-                  + r.encode('ascii', 'ignore'))
+    try:
+      logfile.write("REQ: " 
+                    + time.strftime("%d/%m/%Y %H:%M:%S ")
+                    + r.encode("utf-8"))
+    except UnicodeDecodeError:
+      logfile.write("REQ: " 
+                    + time.strftime("%d/%m/%Y %H:%M:%S ")
+                    + r.encode('ascii', 'ignore'))
   os.system("echo \"$(tail -300 nasbot_ws.log)\"\
             > nasbot_ws.log")
 
@@ -62,9 +67,14 @@ def send_message(chat_id, text):
 
 def on_ws_message(wsocket, message):
   with open("nasbot_ws.log", "a") as logfile:
-    logfile.write("MSG: " 
-                  + time.strftime("%d/%m/%Y %H:%M:%S")
-                  + message)
+    try:
+      logfile.write("MSG: " 
+                    + time.strftime("%d/%m/%Y %H:%M:%S ")
+                    + message.encode("utf-8"))
+    except UnicodeDecodeError:
+      logfile.write("MSG: " 
+                    + time.strftime("%d/%m/%Y %H:%M:%S ")
+                    + message.encode('ascii', 'ignore'))
   os.system("echo \"$(tail -300 nasbot_ws.log)\"\
             > nasbot_ws.log")
   response = eval(message.replace("\\" ,""))
@@ -108,12 +118,10 @@ def on_ws_message(wsocket, message):
                     [0]['uri']
             send_message(response['id'].replace("-started", ""), text)            
         except (IndexError, KeyError):
-          for k, v in gid_chat.iteritems():
-            if response['id'] == v:
               text = "*Files downloading:*\n\n"
               for file in response['result']:
                 text += (file['path'] + "\n\n")
-              chat_id = v.replace("-started", "")
+              chat_id = response['id'].replace("-started", "")
               for k in dl_dirs.keys():
                 text = text.replace(dl_dirs[k],
                                     "To *'"+ k + "'* directory: ")            
@@ -183,9 +191,11 @@ def on_ws_message(wsocket, message):
     if position != -1:
       gid_chat[gid] = gid_chat[gid][:position] + "-fail"
     else:
-      gid_chat[gid] = gid_chat[gid].replace("-started", "-fail").replace(
-                                       "-pending", "-fail").replace(
-                                       "-done", "-fail")
+      gid_chat[gid] = gid_chat[gid].replace("-started", "-fail"
+                                            ).replace(
+                                            "-pending", "-fail"
+                                            ).replace(
+                                            "-done", "-fail")
     conductor(gid_chat[gid], "aria2.getFiles", '["%s"]' % gid)
     del gid_chat[gid]
   id_store = shelve.open("id_file", writeback=True)
@@ -199,9 +209,14 @@ def on_ws_error(wsocket, error):
   send error msg to master or log it to file
   """
   with open("nasbot_ws.log", "a") as logfile:
-    logfile.write("ERR: "
-                  + time.strftime("%d/%m/%Y %H:%M:%S")
-                  + error)
+    try:
+      logfile.write("ERR: "
+                    + time.strftime("%d/%m/%Y %H:%M:%S")
+                    + error.encode("utf-8"))
+    except UnicodeDecodeError:
+      logfile.write("ERR: " 
+                    + time.strftime("%d/%m/%Y %H:%M:%S ")
+                    + error.encode('ascii', 'ignore'))
   os.system("echo \"$(tail -300 nasbot_ws.log)\"\
             > nasbot_ws.log")
 
@@ -237,11 +252,12 @@ def get_updates(offset):
             try:
               attr_list[0] = base64.b64encode(requests.get(attr_list[0],
                                             stream=True).raw.read())
+              conductor(chat_id + "-started", "aria2.addTorrent",
+               '["%s", [], {"dir":"%s/%s"}]' % tuple(attr_list))
+              send_message(chat_id, "Collecting metadata.")
             except (IndexError, AttributeError):
               send_message(chat_id, 
                           "Torrent info is corrupted.")
-            conductor(chat_id + "-started", "aria2.addTorrent",
-             '["%s", [], {"dir":"%s/%s"}]' % tuple(attr_list))
           elif attr_list[0][:8] == "magnet:?":
             id_store = shelve.open("id_file", writeback=True)
             try:
@@ -252,6 +268,7 @@ def get_updates(offset):
                         + attr_list[2], "aria2.addUri",
                         '[["%s"], {"bt-metadata-only":"true",'\
                         '"bt-save-metadata":"true"}]' % attr_list[0])
+              send_message(chat_id, "Collecting metadata.")
             except AttributeError:
               send_message(chat_id, "*It's not a magnet link:*\n\n%s"
                            % attr_list[0])
@@ -337,6 +354,7 @@ def parse_uri(updates):
             conductor(msg[0] + "-pending", "aria2.addUri",
                       '[["%s"], {"bt-metadata-only":"true",'\
                       '"bt-save-metadata":"true"}]' % uri.group(1))
+            send_message(msg[0], "Collecting metadata.")
           except AttributeError:
             send_message(msg[0], "*It's not a magnet link:*\n\n%s."
                         % uri.group(1))
@@ -354,10 +372,13 @@ def parse_uri(updates):
         send_message(msg[0], "I can't do that.")
     else:
       send_message(msg[0], "Human, you'r not my master.")
-      with open("nasbot_nonusers.log", "a") as logfile:
-        logfile.write(msg)
-      os.system("echo \"$(tail -300 nasbot_nonusers.log)\"\
-                > nasbot_nonusers.log")
+      try:
+        with open("nasbot_nonusers.log", "a") as logfile:
+          logfile.write(msg.encode("utf-8"))
+        os.system("echo \"$(tail -300 nasbot_nonusers.log)\"\
+                  > nasbot_nonusers.log")
+      except UnicodeDecodeError:
+        pass
 
 def main():
   offset = ""
