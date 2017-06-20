@@ -129,9 +129,9 @@ def on_ws_message(wsocket, message):
     '''
     if "-pending" in response['id'] or \
        "-sp_magnet" in response['id']:
-       '''
-       Saving gid and chat id ('id') as key: value pair to gid_chat.
-       '''
+      '''
+      Saving gid and chat id ('id') as key: value pair to gid_chat.
+      '''
       gid = response['result']
       gid_chat[gid] = response['id']
     elif "-done" in response['id']:
@@ -242,27 +242,27 @@ def on_ws_message(wsocket, message):
     send_message(chat_id, response['error']['message'])
   elif response['method'] == "aria2.onDownloadComplete" or \
        response['method'] == "aria2.onBtDownloadComplete":
-       '''
-       Whenever download is started with magnet link aria2
-       collects metadata first. It is saved as torrent file
-       named with magnet link info hash. This name is saved to
-       'pending_magnet'. On metadata download completion we've
-       to start download with torrent file. So the filename from
-       'pending_magnet' is passed to 'download_torrent()'
-       in case we need to determine download folder automatically,
-       or sent directly to aria2 via 'conductor()' in case it is
-       a "/special" download and directory was predifined
-       in the message.
-       In case of torrent or file download completion
-       we requesting aria2 with "method":"aria2.getFiles" and
-       download gid ("params":["SGVsbG8sIFdvcmxk"] in our example).
-       Note that there is no 'id' in this JSON, so 
-       the Telegram chat id is retrived by gid from 'gid_chat'.
-       Here is JSON example:
-       {"jsonrpc":"2.0",
-       "method":"aria2.onDownloadComplete",
-       "params":[{"gid":"SGVsbG8sIFdvcmxk"}]}
-       '''
+    '''
+    Whenever download is started with magnet link aria2
+    collects metadata first. It is saved as torrent file
+    named with magnet link info hash. This name is saved to
+    'pending_magnet'. On metadata download completion we've
+    to start download with torrent file. So the filename from
+    'pending_magnet' is passed to 'download_torrent()'
+    in case we need to determine download folder automatically,
+    or sent directly to aria2 via 'conductor()' in case it is
+    a "/special" download and directory was predifined
+    in the message.
+    In case of torrent or file download completion
+    we requesting aria2 with "method":"aria2.getFiles" and
+    download gid ("params":["SGVsbG8sIFdvcmxk"] in our example).
+    Note that there is no 'id' in this JSON, so 
+    the Telegram chat id is retrived by gid from 'gid_chat'.
+    Here is JSON example:
+    {"jsonrpc":"2.0",
+    "method":"aria2.onDownloadComplete",
+    "params":[{"gid":"SGVsbG8sIFdvcmxk"}]}
+    '''
     gid = response['params'][0]['gid']
     if "-pending" in gid_chat[gid]:
       gid_chat[gid] = gid_chat[gid].replace("-pending", "")
