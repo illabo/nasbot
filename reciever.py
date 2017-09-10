@@ -485,7 +485,7 @@ def get_updates(offset):
                            + "-started",
                            uri, uri=True)
       offset = "&offset=%d" % (msg['update_id'] + 1)
-  except (ValueError, ConnectionError):
+  except (ValueError, requests.exceptions.ConnectionError):
     return [], offset
   return updates, offset
 
